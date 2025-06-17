@@ -125,10 +125,12 @@ show_summary() {
         if [ -f "$repo_root/TODO.md" ]; then
             repos_with_todos=$((repos_with_todos + 1))
             
-            incomplete=$(grep -c "^- \[ \]" "$repo_root/TODO.md" 2>/dev/null || echo 0)
+            local incomplete
+            incomplete=$(grep -c "^- \[ \]" "$repo_root/TODO.md" || true)
             total_incomplete=$((total_incomplete + incomplete))
             
-            complete=$(grep -c "^- \[x\]" "$repo_root/TODO.md" 2>/dev/null || echo 0)
+            local complete
+            complete=$(grep -c "^- \[x\]" "$repo_root/TODO.md" || true)
             total_complete=$((total_complete + complete))
         fi
     done < <(find_git_repos "$start_path")

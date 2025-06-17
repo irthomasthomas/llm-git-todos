@@ -2,9 +2,9 @@
 
 ## Phase 1: Core Functionality
 
-- [ ] **Discovery:** Implement recursive discovery of `TODO.md` files in git repositories.
-- [ ] **Listing:** Create a basic CLI command to list all todos from the current repository.
-- [ ] **Aggregation:** Implement logic to aggregate todos from multiple repositories.
+- [x] **Discovery:** Implement recursive discovery of `TODO.md` files in git repositories.
+- [x] **Listing:** Create a basic CLI command to list all todos from the current repository.
+- [x] **Aggregation:** Implement logic to aggregate todos from multiple repositories.
 - [x] **Decision:** Finalize storage format (`TODO.md` in root).
 
 ## Future Ideas
