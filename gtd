@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_NAME="$(basename "$0")"
+
+# Function to show usage
+show_usage() {
+    cat <<USAGE
+Usage: $SCRIPT_NAME [OPTIONS] [PATH]
+
+A command-line tool to manage todos across Git repositories.
+
+OPTIONS:
+    -h, --help        Show this help message
+    -l, --list        List all todos (default action)
+    -a, --add TEXT    Add a new todo item
+    -c, --complete #  Mark an incomplete todo item as complete
+    -s, --summary     Show a summary count of todos
+    
+ARGUMENTS:
+    PATH              Path to scan for repositories (default: current directory)
+
+EXAMPLES:
+    $SCRIPT_NAME                    # List all todos in current directory tree
+    $SCRIPT_NAME --add "Fix bug"    # Add a todo to current repository
+    $SCRIPT_NAME --complete 3       # Mark the 3rd incomplete todo in the current repo as complete
+    $SCRIPT_NAME --summary          # Show summary statistics
+USAGE
+}
+
+# Function to find all .git directories from a starting path
+find_git_repos() {
+    local start_path="${1:-.}"
+    find "$(realpath "$start_path")" -type d -name ".git" 2>/dev/null
+}
+
+# Function to list todos from a specific repository directory
+list_todos() {
+    local repo_path="$1"
+    local todo_file="$repo_path/TODO.md"
+
+    if [ -f "$todo_file" ]; then
+        echo "## TODOS for: $(basename "$repo_path")"
+        echo "   Path: $repo_path"
+        echo "--------------------------------------------------"
+        # Use awk to number only the todo items
+        awk '
+        /^- \[ / {i++; printf "%3d. %s\n", i, $0; next}
+        {print "    " $0}
+        ' "$todo_file"
+        echo "--------------------------------------------------"
+        echo
+    fi
+}
+
+# Function to add a todo item to the current repository
+add_todo() {
+    local todo_text="$1"
+    local todo_file="TODO.md"
+    
+    if [ ! -d ".git" ]; then
+        echo "Error: Not in a Git repository. Cannot add todo."
+        exit 1
+    fi
+    
+    if [ ! -f "$todo_file" ]; then
+        echo "# Project Todos" > "$todo_file"
+        echo "" >> "$todo_file"
+    fi
+    
+    echo "- [ ] $todo_text" >> "$todo_file"
+    echo "Added todo: $todo_text"
+}
+
+# Function to complete a todo item
+complete_todo() {
+    local todo_num_to_complete="$1"
+    local todo_file="TODO.md"
+
+    if ! [[ "$todo_num_to_complete" =~ ^[1-9][0-9]*$ ]]; then
+        echo "Error: Invalid todo number. Please provide a positive integer."
+        exit 1
+    fi
+
+    if [ ! -d ".git" ]; then
+        echo "Error: Not in a Git repository."
+        exit 1
+    fi
+    if [ ! -f "$todo_file" ]; then
+        echo "Error: TODO.md not found in this repository."
+        exit 1
+    fi
+
+    # Get the actual line number in the file of the Nth incomplete todo
+    local line_to_modify
+    line_to_modify=$(grep -n -- "^- \[ \]" "$todo_file" | sed -n "${todo_num_to_complete}p" | cut -d: -f1)
+
+    if [ -z "$line_to_modify" ]; then
+        echo "Error: Invalid or already completed todo number: $todo_num_to_complete"
+        exit 1
+    fi
+
+    # Mark the item as complete
+    sed -i "${line_to_modify}s/\[ \]/\[x\]/" "$todo_file"
+    
+    local completed_task
+    completed_task=$(sed -n "${line_to_modify}p" "$todo_file")
+    echo "Completed: ${completed_task}"
+}
+
+
+# Function to show summary statistics
+show_summary() {
+    local start_path="${1:-.}"
+    local total_repos=0
+    local repos_with_todos=0
+    local total_incomplete=0
+    local total_complete=0
+    
+    while IFS= read -r repo_git_dir; do
+        repo_root="${repo_git_dir%/'.git'}"
+        total_repos=$((total_repos + 1))
+        
+        if [ -f "$repo_root/TODO.md" ]; then
+            repos_with_todos=$((repos_with_todos + 1))
+            
+            incomplete=$(grep -c "^- \[ \]" "$repo_root/TODO.md" 2>/dev/null || echo 0)
+            total_incomplete=$((total_incomplete + incomplete))
+            
+            complete=$(grep -c "^- \[x\]" "$repo_root/TODO.md" 2>/dev/null || echo 0)
+            total_complete=$((total_complete + complete))
+        fi
+    done < <(find_git_repos "$start_path")
+    
+    echo "=== TODO SUMMARY ==="
+    echo "Repositories scanned: $total_repos"
+    echo "Repositories with TODOs: $repos_with_todos"
+    echo "Incomplete todos: $total_incomplete"
+    echo "Complete todos: $total_complete"
+    echo "Total todos: $((total_incomplete + total_complete))"
+}
+
+# Main function
+main() {
+    local action="list"
+    local start_path="."
+    local todo_text=""
+    local todo_num=""
+    
+    if [[ $# -eq 0 ]]; then
+        set -- "--list" # Default to list action
+    fi
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            -l|--list)
+                action="list"
+                shift
+                ;;
+            -a|--add)
+                action="add"
+                if [[ $# -gt 1 ]]; then
+                    todo_text="$2"
+                    shift 2
+                else
+                    echo "Error: --add requires a todo text" >&2
+                    exit 1
+                fi
+                ;;
+            -c|--complete)
+                action="complete"
+                if [[ $# -gt 1 ]]; then
+                    todo_num="$2"
+                    shift 2
+                else
+                    echo "Error: --complete requires a todo number" >&2
+                    exit 1
+                fi
+                ;;
+            -s|--summary)
+                action="summary"
+                shift
+                ;;
+            -*)
+                echo "Error: Unknown option $1" >&2
+                show_usage
+                exit 1
+                ;;
+            *)
+                if [ -z "$start_path" ]; then
+                    start_path="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+    
+    # Execute the requested action
+    case $action in
+        list)
+            echo "Scanning for Git repositories and their TODO.md files..."
+            echo
+            
+            local found_todos=false
+            while IFS= read -r repo_git_dir; do
+                repo_root="${repo_git_dir%/'.git'}"
+                if [ -f "$repo_root/TODO.md" ]; then
+                    list_todos "$repo_root"
+                    found_todos=true
+                fi
+            done < <(find_git_repos "$start_path")
+
+            if [ "$found_todos" = false ]; then
+                echo "No TODO.md files found in any repositories."
+            fi
+            ;;
+        add)
+            add_todo "$todo_text"
+            ;;
+        complete)
+            complete_todo "$todo_num"
+            ;;
+        summary)
+            show_summary "$start_path"
+            ;;
+    esac
+}
+
+main "$@"
